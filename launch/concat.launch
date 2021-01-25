@@ -1,0 +1,16 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="common_frame" default="base_link"/>
+  <arg name="cloud_in1" default="cloud_in1"/>
+  <arg name="cloud_in2" default="cloud_in2"/>
+  <arg name="cloud_out" default="cloud_out"/>
+
+  <!-- Launch PointCloud2 concatenator Node -->
+  <node pkg="pointcloud_concatenate" type="pointcloud_concatenate_node" name="pc_concat" output="screen">
+    <param name="common_frame" value="$(arg common_frame)"/>
+    <remap from="$(arg cloud_in1)" to="cloud_in1"/>
+    <remap from="$(arg cloud_in2)" to="cloud_in2"/>
+    <remap from="$(arg cloud_out)" to="cloud_out"/>
+  </node>
+
+</launch>
