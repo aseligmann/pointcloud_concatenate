@@ -1,16 +1,25 @@
 <launch>
   <!-- Arguments -->
-  <arg name="common_frame" default="base_link"/>
-  <arg name="cloud_in1" default="cloud_in1"/>
-  <arg name="cloud_in2" default="cloud_in2"/>
-  <arg name="cloud_out" default="cloud_out"/>
+  <arg name="target_frame" default="base_link" />
+  <arg name="cloud_in1" default="/camera_front/depth/points" />
+  <arg name="cloud_in2" default="/camera_up/depth/points" />
+  <arg name="cloud_in3" default="/camera_down/depth/points" />
+  <arg name="cloud_in4" default="/pointcloud4" />
+  <arg name="cloud_out" default="cloud_concatenated" />
 
-  <!-- Launch PointCloud2 concatenator Node -->
+  <!-- Launch PointCloud2 concatenator node -->
   <node pkg="pointcloud_concatenate" type="pointcloud_concatenate_node" name="pc_concat" output="screen">
-    <param name="common_frame" value="$(arg common_frame)"/>
-    <remap from="$(arg cloud_in1)" to="cloud_in1"/>
-    <remap from="$(arg cloud_in2)" to="cloud_in2"/>
-    <remap from="$(arg cloud_out)" to="cloud_out"/>
+    <param name="target_frame" value="$(arg target_frame)" />    
+    <param name="clouds" value="3" />
+    <param name="hz" value="10" />
+    <remap from="cloud_in1" to="$(arg cloud_in1)" />
+    <remap from="cloud_in2" to="$(arg cloud_in2)" />
+    <remap from="cloud_in3" to="$(arg cloud_in3)" />
+    <!-- <remap from="cloud_in4" to="$(arg cloud_in4)" /> -->
+    <remap from="cloud_out" to="$(arg cloud_out)" />
   </node>
+
+  <!-- Launch RViz display -->
+  <node name="pointcloud_concatenate_ui" pkg="rviz" type="rviz" args="-d $(find pointcloud_concatenate)/config/rviz/pointcloud_concatenate.rviz" output="screen" />
 
 </launch>
