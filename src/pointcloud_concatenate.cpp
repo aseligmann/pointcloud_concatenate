@@ -32,24 +32,32 @@ void PointcloudConcatenate::subCallbackCloudIn1(sensor_msgs::PointCloud2 msg) {
   cloud_in1 = msg;
   cloud_in1_received = true;
   cloud_in1_received_recent = true;
+  // Also, get the timestamp
+  cloud_in1_timestamp = msg.header.stamp;
 }
 
 void PointcloudConcatenate::subCallbackCloudIn2(sensor_msgs::PointCloud2 msg) {
   cloud_in2 = msg;
   cloud_in2_received = true;
   cloud_in2_received_recent = true;
+  // Also, get the timestamp
+  cloud_in2_timestamp = msg.header.stamp;
 }
 
 void PointcloudConcatenate::subCallbackCloudIn3(sensor_msgs::PointCloud2 msg) {
   cloud_in3 = msg;
   cloud_in3_received = true;
   cloud_in3_received_recent = true;
+  // Also, get the timestamp
+  cloud_in3_timestamp = msg.header.stamp;
 }
 
 void PointcloudConcatenate::subCallbackCloudIn4(sensor_msgs::PointCloud2 msg) {
   cloud_in4 = msg;
   cloud_in4_received = true;
   cloud_in4_received_recent = true;
+  // Also, get the timestamp
+  cloud_in4_timestamp = msg.header.stamp;
 }
 
 void PointcloudConcatenate::handleParams() {
@@ -83,7 +91,66 @@ void PointcloudConcatenate::handleParams() {
     ROSPARAM_WARN(param_name, param_hz_);
   }
 
+  // Time threshold for skipping old pointclouds
+  param_name = node_name_ + "/time_threshold";
+  if (!ros::param::get(param_name, param_time_threshold_)) {
+    param_time_threshold_ = 0.1;
+    ROSPARAM_WARN(param_name, param_time_threshold_);
+  }
+
   ROS_INFO("Parameters loaded.");
+}
+
+bool PointcloudConcatenate::checkTimeThresholdOk(ros::Time& reference_time, ros::Time& current_time, const int& cloud_index) {
+  double timestamp_diff = std::abs((current_time - reference_time).toSec());
+  if (timestamp_diff > param_time_threshold_) {
+    ROS_INFO("Cloud %d is too old [%.3f s], skipping...", cloud_index, timestamp_diff);
+    return false;
+  }
+  return true;
+}
+
+void PointcloudConcatenate::concatenate_with_reference_cloud(sensor_msgs::PointCloud2& reference_cloud, const sensor_msgs::PointCloud2 cloud_to_concat, bool& success, bool& cloud_received_recent, ros::Time& reference_time, ros::Time& current_time, const int& cloud_index, const bool& update_reference_time) {
+  // ROS_INFO cloud idx
+  // ROS_INFO("Concatenating cloud %d", cloud_index);
+  if (param_clouds_ >= cloud_index && success && cloud_received_recent) {
+      // Warn if cloud was not received since last update
+      if (!cloud_received_recent) {
+        ROS_WARN("Cloud was not received since last update, reusing last received message...");
+      }
+      cloud_received_recent = false;
+      bool success_time_threshold = false;
+      if (update_reference_time) {
+        success_time_threshold = true;
+        reference_time = cloud_to_concat.header.stamp;
+      } else {
+        success_time_threshold = this->checkTimeThresholdOk(reference_time, current_time, cloud_index);
+      }
+      if (success_time_threshold) {
+        sensor_msgs::PointCloud2 transformed_cloud;
+        // Transform pointcloud to the target frame if needed
+        if (cloud_to_concat.header.frame_id != param_frame_target_) {
+          // ROS_INFO("Transforming cloud %d from %s to %s", cloud_index, cloud_to_concat.header.frame_id.c_str(), param_frame_target_.c_str());
+          success = pcl_ros::transformPointCloud(param_frame_target_, cloud_to_concat, transformed_cloud, *tfBuffer);
+          if (!success) {
+            ROS_WARN("Transforming cloud %d from %s to %s failed!", cloud_index, cloud_to_concat.header.frame_id.c_str(), param_frame_target_.c_str());
+            return;
+          }
+        } else {
+          // ROS_INFO("Cloud %d is already in the target frame", cloud_index);
+          transformed_cloud = cloud_to_concat;
+        }
+        // For the first cloud, set the header and assign directly
+        if (update_reference_time) {
+          reference_cloud = transformed_cloud;
+          // ROS_INFO("Cloud %d is the first cloud. Taken as reference", cloud_index);
+        } else {
+          // Concatenate the pointclouds (all in the same frame now)
+          pcl::concatenatePointCloud(reference_cloud, transformed_cloud, reference_cloud);
+          // ROS_INFO("Cloud %d is concatenated with the reference cloud wrt the target frame: %s", cloud_index, param_frame_target_.c_str());
+        }
+      }
+    }
 }
 
 double PointcloudConcatenate::getHz() {
@@ -97,7 +164,7 @@ void PointcloudConcatenate::update() {
     // Initialise pointclouds
     sensor_msgs::PointCloud2 cloud_to_concat;
     cloud_out = cloud_to_concat; // Clear the output pointcloud
-    
+
     // Track success of transforms
     bool success = true;
 
@@ -114,83 +181,20 @@ void PointcloudConcatenate::update() {
       return;
     }
 
-    
-    // Concatenate the first pointcloud
-    if (param_clouds_ >= 1 && success && cloud_in1_received) {
-      // Warn if cloud was not received since last update
-      if (!cloud_in1_received_recent) {
-        ROS_WARN("Cloud 1 was not received since last update, reusing last received message...");
-      }
-      cloud_in1_received_recent = false;
+    // Set reference time to the current time
+    ros::Time reference_time = ros::Time::now();
 
-      // Transform pointcloud to the target frame
-      // Here we just assign the pointcloud directly to the output to ensure the secondary
-      // data is inherited correctly.
-      success = pcl_ros::transformPointCloud(param_frame_target_, cloud_in1, cloud_out, *tfBuffer);
-      if (!success) {
-        ROS_WARN("Transforming cloud 1 from %s to %s failed!", cloud_in1.header.frame_id.c_str(), param_frame_target_.c_str());
-      }
-    }
+    // Concatenate the first pointcloud
+    this->concatenate_with_reference_cloud(cloud_out, cloud_in1, success, cloud_in1_received_recent, reference_time, cloud_in1_timestamp, 0, true);
 
     // Concatenate the second pointcloud
-    if (param_clouds_ >= 2 && success && cloud_in2_received) {
-      // Warn if cloud was not received since last update
-      if (!cloud_in2_received_recent) {
-        ROS_WARN("Cloud 2 was not received since last update, reusing last received message...");
-      }
-      cloud_in2_received_recent = false;
-
-      // Transform pointcloud to the target frame
-      success = pcl_ros::transformPointCloud(param_frame_target_, cloud_in2, cloud_to_concat, *tfBuffer);
-      if (!success) {
-        ROS_WARN("Transforming cloud 2 from %s to %s failed!", cloud_in2.header.frame_id.c_str(), param_frame_target_.c_str());
-      }
-      
-      // Concatenate the pointcloud
-      if (success) {
-        pcl::concatenatePointCloud(cloud_out, cloud_to_concat, cloud_out);
-      }
-    }
+    this->concatenate_with_reference_cloud(cloud_out, cloud_in2, success, cloud_in2_received_recent, reference_time, cloud_in2_timestamp, 1, false);
 
     // Concatenate the third pointcloud
-    if (param_clouds_ >= 3 && success && cloud_in3_received) {
-      // Warn if cloud was not received since last update
-      if (!cloud_in3_received_recent) {
-        ROS_WARN("Cloud 3 was not received since last update, reusing last received message...");
-      }
-      cloud_in3_received_recent = false;
-
-      // Transform pointcloud to the target frame
-      success = pcl_ros::transformPointCloud(param_frame_target_, cloud_in3, cloud_to_concat, *tfBuffer);
-      if (!success) {
-        ROS_WARN("Transforming cloud 3 from %s to %s failed!", cloud_in3.header.frame_id.c_str(), param_frame_target_.c_str());
-      }
-
-      // Concatenate the pointcloud
-      if (success) {
-        pcl::concatenatePointCloud(cloud_out, cloud_to_concat, cloud_out);
-      }
-    }
+    this->concatenate_with_reference_cloud(cloud_out, cloud_in3, success, cloud_in3_received_recent, reference_time, cloud_in3_timestamp, 2, false);
 
     // Concatenate the fourth pointcloud
-    if (param_clouds_ >= 4 && success && cloud_in4_received) {
-      // Warn if cloud was not received since last update
-      if (!cloud_in4_received_recent) {
-        ROS_WARN("Cloud 4 was not received since last update, reusing last received message...");
-      }
-      cloud_in4_received_recent = false;
-
-      // Transform pointcloud to the target frame
-      success = pcl_ros::transformPointCloud(param_frame_target_, cloud_in4, cloud_to_concat, *tfBuffer);
-      if (!success) {
-        ROS_WARN("Transforming cloud 4 from %s to %s failed!", cloud_in4.header.frame_id.c_str(), param_frame_target_.c_str());
-      }
-
-      // Concatenate the pointcloud
-      if (success) {
-        pcl::concatenatePointCloud(cloud_out, cloud_to_concat, cloud_out);
-      }
-    }
+    this->concatenate_with_reference_cloud(cloud_out, cloud_in4, success, cloud_in4_received_recent, reference_time, cloud_in4_timestamp, 3, false);
 
     // Publish the concatenated pointcloud
     if (success) {
@@ -201,9 +205,5 @@ void PointcloudConcatenate::update() {
 
 void PointcloudConcatenate::publishPointcloud(sensor_msgs::PointCloud2 cloud) {
   // Publishes the combined pointcloud
-
-  // Update the timestamp
-  cloud.header.stamp = ros::Time::now();
-  // Publish
   pub_cloud_out.publish(cloud);
 }

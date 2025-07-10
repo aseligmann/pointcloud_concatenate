@@ -9,9 +9,10 @@
 
   <!-- Launch PointCloud2 concatenator node -->
   <node pkg="pointcloud_concatenate" type="pointcloud_concatenate_node" name="pc_concat" output="screen">
-    <param name="target_frame" value="$(arg target_frame)" />    
+    <param name="target_frame" value="$(arg target_frame)" />
     <param name="clouds" value="3" />
     <param name="hz" value="10" />
+    <param name="time_threshold" value="0.1" />
     <remap from="cloud_in1" to="$(arg cloud_in1)" />
     <remap from="cloud_in2" to="$(arg cloud_in2)" />
     <remap from="cloud_in3" to="$(arg cloud_in3)" />
